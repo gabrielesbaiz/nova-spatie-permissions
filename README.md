@@ -1,19 +1,16 @@
-# A Laravel Nova tool for the Spatie Permission package
+# NovaSpatiePermissions
 
 [![Latest Version on Packagist](https://img.shields.io/packagist/v/gabrielesbaiz/nova-spatie-permissions.svg?style=flat-square)](https://packagist.org/packages/gabrielesbaiz/nova-spatie-permissions)
-[![GitHub Tests Action Status](https://img.shields.io/github/actions/workflow/status/gabrielesbaiz/nova-spatie-permissions/run-tests.yml?branch=main&label=tests&style=flat-square)](https://github.com/gabrielesbaiz/nova-spatie-permissions/actions?query=workflow%3Arun-tests+branch%3Amain)
-[![GitHub Code Style Action Status](https://img.shields.io/github/actions/workflow/status/gabrielesbaiz/nova-spatie-permissions/fix-php-code-style-issues.yml?branch=main&label=code%20style&style=flat-square)](https://github.com/gabrielesbaiz/nova-spatie-permissions/actions?query=workflow%3A"Fix+PHP+code+style+issues"+branch%3Amain)
 [![Total Downloads](https://img.shields.io/packagist/dt/gabrielesbaiz/nova-spatie-permissions.svg?style=flat-square)](https://packagist.org/packages/gabrielesbaiz/nova-spatie-permissions)
 
-This is where your description should go. Limit it to a paragraph or two. Consider adding a small example.
+A Laravel Nova tool for the Spatie Permission package.
 
-## Support us
+Original code from [moroneyio/novaspatiepermissions](https://github.com/moroneyio/novaspatiepermissions)
 
-[<img src="https://github-ads.s3.eu-central-1.amazonaws.com/nova-spatie-permissions.jpg?t=1" width="419px" />](https://spatie.be/github-ad-click/nova-spatie-permissions)
+## Features
 
-We invest a lot of resources into creating [best in class open source packages](https://spatie.be/open-source). You can support us by [buying one of our paid products](https://spatie.be/open-source/support-us).
-
-We highly appreciate you sending us a postcard from your hometown, mentioning which of our package(s) you are using. You'll find our address on [our contact page](https://spatie.be/about-us). We publish all received postcards on [our virtual postcard wall](https://spatie.be/open-source/postcards).
+- ✅ Manage roles and permissions on the Nova dashboard
+- ✅ Use permissions based authorization for Nova resources
 
 ## Installation
 
@@ -23,30 +20,65 @@ You can install the package via composer:
 composer require gabrielesbaiz/nova-spatie-permissions
 ```
 
-You can publish and run the migrations with:
-
-```bash
-php artisan vendor:publish --tag="nova-spatie-permissions-migrations"
-php artisan migrate
-```
-
-You can publish the config file with:
-
-```bash
-php artisan vendor:publish --tag="nova-spatie-permissions-config"
-```
-
-This is the contents of the published config file:
+Next, if you do not have package discovery enabled, you need to register the provider in the `config/app.php` file.
 
 ```php
-return [
-];
+'providers' => [
+    ...,
+    Gabrielesbaiz\NovaSpatiePermissions\NovaSpatiePermissionsServiceProvider::class,
+]
 ```
 
-Optionally, you can publish the views using
+Next, you must register the tool with Nova. This is typically done in the `tools` method of the `NovaServiceProvider`.
 
-```bash
-php artisan vendor:publish --tag="nova-spatie-permissions-views"
+```php
+// in app/Providers/NovaServiceProvider.php
+use Gabrielesbaiz\NovaSpatiePermissions\Novaspatiepermissions;
+
+public function tools()
+{
+    return [
+        // ...
+        Novaspatiepermissions::make(),
+    ];
+}
+```
+
+Next, add `MorphToMany` fields to your `app/Nova/User` resource:
+
+```php
+use Laravel\Nova\Fields\MorphToMany;
+
+public function fields(Request $request)
+{
+    return [
+        // ...
+        MorphToMany::make('Roles', 'roles', \Gabrielesbaiz\NovaSpatiePermissions\Role::class),
+        MorphToMany::make('Permissions', 'permissions', \Gabrielesbaiz\NovaSpatiePermissions\Permission::class),
+    ];
+}
+```
+
+Finally, add the `ForgetCachedPermissions` class to your `config/nova.php` middleware like so:
+
+```php
+// in config/nova.php
+'middleware' => [
+	'web',
+	Authenticate::class,
+	DispatchServingNovaEvent::class,
+	BootTools::class,
+	Authorize::class,
+	 \Gabrielesbaiz\NovaSpatiePermissions\ForgetCachedPermissions::class,
+],
+```
+
+## Localization
+
+You can use the artisan command line tool to publish localization files:
+
+```php
+php artisan vendor:publish --provider=" \Gabrielesbaiz\NovaSpatiePermissions\NovaPermissionServiceProvider"
 ```
 
 ## Usage
@@ -56,10 +88,49 @@ $novaSpatiePermissions = new Gabrielesbaiz\NovaSpatiePermissions();
 echo $novaSpatiePermissions->echoPhrase('Hello, Gabrielesbaiz!');
 ```
 
-## Testing
+## Permissions Based Authorization for Nova Resources
+By default, Laravel Nova uses Policy based authorization for Nova resources. If you are using the Spatie Permission library, it is very likely that you would want to swap this out to permission based authorization without the need to define Authorization policies.
 
-```bash
-composer test
+To do so, you can use the `PermissionsBasedAuthTrait` and define a `permissionsForAbilities` static array property in your Nova resource class like so:
+
+```php
+// in app/Nova/YourNovaResource.php
+
+class YourNovaResource extends Resource
+{
+    use \Gabrielesbaiz\NovaSpatiePermissions\PermissionsBasedAuthTrait;
+
+    public static $permissionsForAbilities = [
+      'all' => 'manage products',
+    ];
+}
+```
+
+The example above means that all actions on this resource can be performed by users who have the "manage products" permission. You can also define separate permissions for each action like so:
+
+```php
+    public static $permissionsForAbilities = [
+      'viewAny' => 'view products',
+      'view' => 'view products',
+      'create' => 'create products',
+      'update' => 'update products',
+      'delete' => 'delete products',
+      'restore' => 'restore products',
+      'forceDelete' => 'forceDelete products',
+      'addAttribute' => 'add product attributes',
+      'attachAttribute' => 'attach product attributes',
+      'detachAttribute' => 'detach product attributes',
+    ];
+```
+
+### Relationships 
+To allow your users to specify a relationship on your model, you will need to add another permission on the Model. 
+For example, if your `Product` belongs to `User`, add the following permission on `app/Nova/User.php`. : 
+
+```php
+    public static $permissionsForAbilities = [
+      'addProduct' => 'add user on products'
+    ];
 ```
 
 ## Changelog
@@ -76,6 +147,7 @@ Please review [our security policy](../../security/policy) on how to report secu
 
 ## Credits
 
+- [Joshua](https://github.com/moroneyio)
 - [Gabriele Sbaiz](https://github.com/gabrielesbaiz)
 - [All Contributors](../../contributors)
 
